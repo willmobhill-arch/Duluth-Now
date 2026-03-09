@@ -1,0 +1,17 @@
+# Next.js
+.next/
+out/
+node_modules/
+
+# Env
+.env.local
+.env.production
+
+# Python
+pipeline/__pycache__/
+pipeline/*.pyc
+pipeline/.venv/
+pipeline/downloads/
+
+# OS
+.DS_Store
