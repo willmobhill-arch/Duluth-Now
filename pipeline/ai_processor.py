@@ -1,5 +1,8 @@
 """
-ai_processor.py — Send parsed PDF text to OpenAI GPT-4o for structured extraction.
+ai_processor.py — Send parsed PDF text to an LLM via OpenRouter for structured extraction.
+
+Uses the OpenAI-compatible API. Set OPENROUTER_API_KEY in your .env.
+Default model: google/gemini-2.0-flash (fast + cheap). Override with OPENROUTER_MODEL.
 
 Returns a dict matching the database schema.
 """
@@ -7,16 +10,20 @@ Returns a dict matching the database schema.
 import json
 import logging
 import os
-import re
 from typing import Optional
 
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+client = OpenAI(
+    api_key=os.environ["OPENROUTER_API_KEY"],
+    base_url="https://openrouter.ai/api/v1",
+)
 
-# Token budget per call (GPT-4o context window is 128k)
+MODEL = os.environ.get("OPENROUTER_MODEL", "google/gemini-2.0-flash")
+
+# Token budget per call
 MAX_INPUT_CHARS = 60_000  # ~15k tokens — leaves room for output
 
 
@@ -88,7 +95,7 @@ def extract_meeting_data(raw_text: str, source_url: str, committee_type_hint: st
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
@@ -111,7 +118,7 @@ def extract_meeting_data(raw_text: str, source_url: str, committee_type_hint: st
                 data["committee_type"] = committee_type_hint
 
         logger.info(
-            f"Extracted: {data.get('committee_type')} meeting on {data.get('meeting_date')}, "
+            f"Extracted via {MODEL}: {data.get('committee_type')} meeting on {data.get('meeting_date')}, "
             f"{len(data.get('agenda_items', []))} items, "
             f"{len(data.get('properties', []))} properties, "
             f"{len(data.get('people', []))} people. "
@@ -120,10 +127,10 @@ def extract_meeting_data(raw_text: str, source_url: str, committee_type_hint: st
         return data
 
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse GPT-4o JSON response: {e}")
+        logger.error(f"Failed to parse JSON response: {e}")
         return None
     except Exception as e:
-        logger.error(f"GPT-4o API error: {e}")
+        logger.error(f"OpenRouter API error: {e}")
         return None
 
 
