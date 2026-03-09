@@ -5,9 +5,14 @@ Returns a list of dicts:
   { url: str, committee_type: str, raw_title: str }
 
 Only returns PDFs not already in the `meetings` table.
+
+URL notes for duluthga.net:
+- The site uses a <base> tag pointing to the site root, so all hrefs are
+  root-relative (e.g. "03-09-2026 Agenda.pdf?t=...").
+- Meeting PDFs always have a ?t= cache-busting timestamp; sidebar/nav PDFs don't.
+- We hit the per-committee subpages directly (no crawling needed).
 """
 
-import re
 import logging
 from typing import Optional
 from urllib.parse import urljoin
@@ -21,69 +26,91 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.duluthga.net"
 
-# Pages to crawl for meeting documents
+# Direct URLs to each committee's agendas & minutes page
 MEETING_PAGES = [
     {
-        "url": f"{BASE_URL}/government/agendas___minutes/",
+        "url": f"{BASE_URL}/government/agendas___minutes/mayor___council_agendas___minutes.php",
         "committee_type": "city_council",
     },
     {
-        "url": f"{BASE_URL}/government/planning_commission.php",
+        "url": f"{BASE_URL}/government/agendas___minutes/planning_commission_agendas___minutes.php",
         "committee_type": "planning_commission",
     },
     {
-        "url": f"{BASE_URL}/government/board_of_zoning_appeals.php",
+        "url": f"{BASE_URL}/government/agendas___minutes/zoning_board_of_appeals_agendas___minutes.php",
         "committee_type": "bza",
     },
 ]
 
-# Additional sub-pages discovered during crawl (committee agendas index pages)
-AGENDAS_INDEX_PATTERNS = [
-    r"agendas",
-    r"minutes",
-    r"agenda.*minutes",
-]
+
+def get_base_href(soup: BeautifulSoup) -> str:
+    """
+    duluthga.net embeds a <base href="..."> tag. Use it as the base for urljoin
+    so root-relative hrefs resolve correctly (instead of resolving relative to
+    the current page path, which would double the subdirectory).
+    """
+    tag = soup.find("base")
+    if tag and tag.get("href"):
+        return tag["href"]
+    return BASE_URL
 
 
 def classify_committee(url: str, page_committee: str) -> str:
-    """Refine committee type from URL text hints."""
-    url_lower = url.lower()
-    if "planning" in url_lower:
+    """Refine committee type from URL hints."""
+    u = url.lower()
+    if "planning" in u:
         return "planning_commission"
-    if "bza" in url_lower or "zoning_appeal" in url_lower:
+    if "zoning" in u or "appeals" in u or "bza" in u:
         return "bza"
-    if "council" in url_lower:
+    if "council" in u or "mayor" in u:
         return "city_council"
     return page_committee
 
 
-def extract_pdf_links(html: str, base_url: str, committee_type: str) -> list[dict]:
-    """Parse HTML and extract all .pdf links with basic metadata."""
+def extract_pdf_links(html: str, committee_type: str) -> list[dict]:
+    """
+    Parse HTML and return meeting document PDF links.
+    Filters to links with .pdf AND ?t= timestamp (CMS-served meeting docs).
+    Sidebar/nav PDFs (proclamation, ballot, etc.) lack the ?t= param.
+    """
     soup = BeautifulSoup(html, "html.parser")
+    base = get_base_href(soup)
     results = []
 
     for a in soup.find_all("a", href=True):
         href: str = a["href"]
-        if not href.lower().endswith(".pdf"):
+        # Must contain .pdf (may have ?t= query string after)
+        if ".pdf" not in href.lower():
+            continue
+        # ?t= timestamp distinguishes CMS meeting docs from static sidebar PDFs
+        if "?t=" not in href:
             continue
 
-        full_url = urljoin(base_url, href)
-        link_text = a.get_text(strip=True) or href.split("/")[-1]
+        full_url = urljoin(base, href)
+        link_text = (
+            a.get_text(strip=True)
+            .replace("Opens in new window", "")
+            .strip()
+        )
         ct = classify_committee(full_url, committee_type)
 
         results.append({
             "url": full_url,
             "committee_type": ct,
-            "raw_title": link_text,
+            "raw_title": link_text or href.split("/")[-1].split("?")[0],
         })
 
     return results
 
 
 def fetch_page(url: str, timeout: int = 20) -> Optional[str]:
-    """Fetch a URL and return HTML text, or None on error."""
+    """Fetch a URL and return HTML, or None on error."""
     try:
-        resp = requests.get(url, timeout=timeout, headers={"User-Agent": "DuluthNow/1.0"})
+        resp = requests.get(
+            url,
+            timeout=timeout,
+            headers={"User-Agent": "DuluthNow/1.0"},
+        )
         resp.raise_for_status()
         return resp.text
     except Exception as e:
@@ -91,27 +118,8 @@ def fetch_page(url: str, timeout: int = 20) -> Optional[str]:
         return None
 
 
-def discover_sub_pages(html: str, base_url: str) -> list[str]:
-    """Find sub-pages linked from a meeting index page that may list more PDFs."""
-    soup = BeautifulSoup(html, "html.parser")
-    sub_pages = []
-
-    for a in soup.find_all("a", href=True):
-        href: str = a["href"]
-        text = a.get_text(strip=True).lower()
-        if any(re.search(pat, text) for pat in AGENDAS_INDEX_PATTERNS):
-            sub_pages.append(urljoin(base_url, href))
-        elif any(re.search(pat, href.lower()) for pat in AGENDAS_INDEX_PATTERNS):
-            sub_pages.append(urljoin(base_url, href))
-
-    # deduplicate
-    return list(dict.fromkeys(sub_pages))
-
-
 def scrape() -> list[dict]:
-    """
-    Main entry point. Returns new PDFs not yet in the database.
-    """
+    """Main entry point. Returns new PDFs not yet in the database."""
     already_processed = get_processed_urls()
     all_pdfs: list[dict] = []
     seen_urls: set[str] = set()
@@ -125,29 +133,14 @@ def scrape() -> list[dict]:
         if not html:
             continue
 
-        # Direct PDF links on the page
-        pdfs = extract_pdf_links(html, page_url, committee_type)
+        pdfs = extract_pdf_links(html, committee_type)
+        logger.info(f"  Found {len(pdfs)} PDF links")
         for pdf in pdfs:
             if pdf["url"] not in seen_urls:
                 seen_urls.add(pdf["url"])
                 all_pdfs.append(pdf)
 
-        # Also check sub-pages (e.g. year-specific archive pages)
-        sub_pages = discover_sub_pages(html, page_url)
-        for sub_url in sub_pages[:10]:  # limit to avoid crawl sprawl
-            logger.info(f"  Sub-page: {sub_url}")
-            sub_html = fetch_page(sub_url)
-            if not sub_html:
-                continue
-            sub_pdfs = extract_pdf_links(sub_html, sub_url, committee_type)
-            for pdf in sub_pdfs:
-                if pdf["url"] not in seen_urls:
-                    seen_urls.add(pdf["url"])
-                    all_pdfs.append(pdf)
-
-    # Filter out already-processed PDFs
     new_pdfs = [p for p in all_pdfs if p["url"] not in already_processed]
-
     logger.info(f"Found {len(all_pdfs)} total PDFs, {len(new_pdfs)} new")
     return new_pdfs
 
