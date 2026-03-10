@@ -21,7 +21,7 @@ client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
 )
 
-MODEL = os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.0-flash"
+MODEL = os.environ.get("OPENROUTER_MODEL") or "google/gemini-2.0-flash-001"
 
 # Token budget per call
 MAX_INPUT_CHARS = 60_000  # ~15k tokens — leaves room for output
