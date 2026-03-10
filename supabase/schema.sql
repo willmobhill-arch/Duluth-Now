@@ -19,7 +19,7 @@ create table meetings (
 
 create index meetings_date_idx on meetings (meeting_date desc);
 create index meetings_committee_idx on meetings (committee_type);
-create index meetings_url_idx on meetings (source_pdf_url);  -- used for dedup check
+create unique index meetings_url_idx on meetings (source_pdf_url);  -- used for dedup + upsert ON CONFLICT
 
 -- ── agenda_items ──────────────────────────────────────────────────────────────
 create table agenda_items (
