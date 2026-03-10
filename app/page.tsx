@@ -1,11 +1,12 @@
 import Link from 'next/link'
 import { getRecentMeetings } from '@/lib/queries'
 import { MeetingCard } from '@/components/MeetingCard'
+import type { Meeting } from '@/lib/types'
 
 export const revalidate = 3600 // ISR: refresh every hour
 
 export default async function HomePage() {
-  let meetings = []
+  let meetings: Meeting[] = []
   try {
     meetings = await getRecentMeetings(5)
   } catch {

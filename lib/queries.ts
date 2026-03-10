@@ -86,7 +86,8 @@ export async function getPropertyMeetings(propertyId: string): Promise<Meeting[]
     .eq('entity_id', propertyId)
 
   if (error) throw error
-  return (data ?? []).map((r: { meetings: Meeting }) => r.meetings).filter(Boolean)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => r.meetings as Meeting).filter(Boolean)
 }
 
 // ── People ────────────────────────────────────────────────────────────────────
@@ -110,7 +111,8 @@ export async function getPersonMeetings(personId: string): Promise<Meeting[]> {
     .eq('entity_id', personId)
 
   if (error) throw error
-  return (data ?? []).map((r: { meetings: Meeting }) => r.meetings).filter(Boolean)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => r.meetings as Meeting).filter(Boolean)
 }
 
 // ── Zoning cases (for map) ────────────────────────────────────────────────────

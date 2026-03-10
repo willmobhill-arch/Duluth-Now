@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { format } from 'date-fns'
 import { getPerson, getPersonMeetings } from '@/lib/queries'
 import { MeetingCard } from '@/components/MeetingCard'
+import type { Meeting } from '@/lib/types'
 
 export const revalidate = 3600
 
@@ -19,7 +20,7 @@ export default async function PersonPage({ params }: Props) {
   const person = await getPerson(params.id)
   if (!person) notFound()
 
-  let meetings = []
+  let meetings: Meeting[] = []
   try {
     meetings = await getPersonMeetings(params.id)
   } catch {

@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { getProperty, getPropertyMeetings } from '@/lib/queries'
 import { MeetingCard } from '@/components/MeetingCard'
+import type { Meeting } from '@/lib/types'
 
 export const revalidate = 3600
 
@@ -18,7 +19,7 @@ export default async function PropertyPage({ params }: Props) {
   const prop = await getProperty(params.id)
   if (!prop) notFound()
 
-  let meetings = []
+  let meetings: Meeting[] = []
   try {
     meetings = await getPropertyMeetings(params.id)
   } catch {
