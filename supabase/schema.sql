@@ -49,7 +49,7 @@ create table properties (
   last_enriched_at timestamptz
 );
 
-create index properties_address_idx on properties (address);
+create unique index properties_address_idx on properties (address);  -- used for dedup + upsert ON CONFLICT
 create index properties_parcel_idx on properties (parcel_id);
 create index properties_geom_idx on properties using gist (geom);
 
